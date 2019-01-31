@@ -1,4 +1,4 @@
-package gormsession
+package gorm
 
 import (
 	"context"

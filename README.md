@@ -20,7 +20,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/go-session/gorm"
+	gormstore "github.com/go-session/gorm"
 	"github.com/go-session/session"
 	"github.com/jinzhu/gorm"
 
@@ -35,7 +35,7 @@ func main() {
 	defer db.Close()
 
 	session.InitManager(
-		session.SetStore(gormsession.NewDefaultStore(db)),
+		session.SetStore(gormstore.NewDefaultStore(db)),
 	)
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jinzhu/gorm"
+	"github.com/go-session/session"
 
 	_ "github.com/jinzhu/gorm/dialects/mysql"
 	_ "github.com/jinzhu/gorm/dialects/sqlite"
@@ -14,38 +14,38 @@ import (
 )
 
 const (
-	expired = 5
+	expired = 1
 )
 
 func TestSqliteStore(t *testing.T) {
 	dsn := os.TempDir() + "/gorm.db"
-	db, err := gorm.Open("sqlite3", dsn)
+	store, err := NewStore(Config{GCInterval: 1}, "sqlite3", dsn)
 	if err != nil {
 		t.Error(err.Error())
 		return
 	}
-	defer db.Close()
+	defer store.Close()
 
 	Convey("Test gorm sqlite store operation", t, func() {
-		testStore(t, db)
-		testManagerStore(t, db)
-		testGC(t, db)
+		testStore(t, store)
+		testManagerStore(t, store)
+		testGC(t, store)
 	})
 }
 
 func TestMySQLStore(t *testing.T) {
 	dsn := "root:@tcp(127.0.0.1:3306)/myapp_test?charset=utf8&parseTime=True&loc=Local"
-	db, err := gorm.Open("mysql", dsn)
+	store, err := NewStore(Config{GCInterval: 1}, "mysql", dsn)
 	if err != nil {
 		t.Error(err.Error())
 		return
 	}
-	defer db.Close()
+	defer store.Close()
 
 	Convey("Test gorm mysql store operation", t, func() {
-		testStore(t, db)
-		testManagerStore(t, db)
-		testGC(t, db)
+		testStore(t, store)
+		testManagerStore(t, store)
+		testGC(t, store)
 	})
 }
 
@@ -53,10 +53,7 @@ func newSid() string {
 	return "test_gorm_store_" + time.Now().String()
 }
 
-func testStore(t *testing.T, db *gorm.DB) {
-	mstore := NewDefaultStore(db)
-	defer mstore.Close()
-
+func testStore(t *testing.T, mstore session.ManagerStore) {
 	ctx := context.Background()
 	sid := newSid()
 	defer mstore.Delete(ctx, sid)
@@ -95,10 +92,7 @@ func testStore(t *testing.T, db *gorm.DB) {
 	So(foo2, ShouldBeNil)
 }
 
-func testManagerStore(t *testing.T, db *gorm.DB) {
-	mstore := NewDefaultStore(db)
-	defer mstore.Close()
-
+func testManagerStore(t *testing.T, mstore session.ManagerStore) {
 	ctx := context.Background()
 	sid := newSid()
 	store, err := mstore.Create(ctx, sid, expired)
@@ -138,13 +132,10 @@ func testManagerStore(t *testing.T, db *gorm.DB) {
 	So(err, ShouldBeNil)
 }
 
-func testGC(t *testing.T, db *gorm.DB) {
-	mstore := NewStoreWithDB(db, "", 1)
-	defer mstore.Close()
-
+func testGC(t *testing.T, mstore session.ManagerStore) {
 	ctx := context.Background()
 	sid := newSid()
-	store, err := mstore.Create(ctx, sid, 1)
+	store, err := mstore.Create(ctx, sid, expired)
 	So(store, ShouldNotBeNil)
 	So(err, ShouldBeNil)
 

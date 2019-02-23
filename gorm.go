@@ -28,15 +28,60 @@ type SessionItem struct {
 	ExpiredAt time.Time `gorm:"column:expired_at;"`
 }
 
-// NewDefaultStore Create an instance of a gorm store
-func NewDefaultStore(db *gorm.DB) session.ManagerStore {
-	return NewStoreWithDB(db, "", 0)
+// Config configuration parameter
+type Config struct {
+	Debug           bool          // start debug mode
+	ConnMaxLifetime time.Duration // sets the maximum amount of time a connection may be reused
+	MaxOpenConns    int           // sets the maximum number of open connections to the database
+	MaxIdleConns    int           // sets the maximum number of connections in the idle connection pool
+	TableName       string        // Specify the stored table name (default session)
+	GCInterval      int           // Time interval for executing GC (in seconds, default 600)
+}
+
+// MustStore Create an instance of a gorm store(Throw a panic if an error occurs)
+func MustStore(cfg Config, dialect string, args ...interface{}) session.ManagerStore {
+	store, err := NewStore(cfg, dialect, args...)
+	if err != nil {
+		panic(err)
+	}
+	return store
+}
+
+// NewStore Create an instance of a gorm store
+func NewStore(cfg Config, dialect string, args ...interface{}) (session.ManagerStore, error) {
+	db, err := gorm.Open(dialect, args...)
+	if err != nil {
+		return nil, err
+	}
+
+	if cfg.Debug {
+		db = db.Debug()
+	}
+
+	err = db.DB().Ping()
+	if err != nil {
+		return nil, err
+	}
+
+	db.DB().SetMaxIdleConns(cfg.MaxIdleConns)
+	db.DB().SetMaxOpenConns(cfg.MaxOpenConns)
+	db.DB().SetConnMaxLifetime(cfg.ConnMaxLifetime)
+	return NewStoreWithDB(db, cfg.TableName, cfg.GCInterval)
+}
+
+// MustStoreWithDB Create an instance of a gorm store(Throw a panic if an error occurs)
+func MustStoreWithDB(db *gorm.DB, tableName string, gcInterval int) session.ManagerStore {
+	store, err := NewStoreWithDB(db, tableName, gcInterval)
+	if err != nil {
+		panic(err)
+	}
+	return store
 }
 
 // NewStoreWithDB Create an instance of a gorm store,
-// tableName Specify the stored table name (default go_session),
+// tableName Specify the stored table name (default session),
 // gcInterval Time interval for executing GC (in seconds, default 600)
-func NewStoreWithDB(db *gorm.DB, tableName string, gcInterval int) session.ManagerStore {
+func NewStoreWithDB(db *gorm.DB, tableName string, gcInterval int) (session.ManagerStore, error) {
 	store := &managerStore{
 		tableName: "session",
 		stdout:    os.Stderr,
@@ -50,7 +95,7 @@ func NewStoreWithDB(db *gorm.DB, tableName string, gcInterval int) session.Manag
 	if !db.HasTable(store.tableName) {
 		err := store.db.CreateTable(&SessionItem{}).Error
 		if err != nil {
-			panic(err)
+			return nil, err
 		}
 		store.db.AddIndex("idx_expired_at", "expired_at")
 	}
@@ -62,11 +107,12 @@ func NewStoreWithDB(db *gorm.DB, tableName string, gcInterval int) session.Manag
 	store.ticker = time.NewTicker(time.Second * time.Duration(interval))
 
 	go store.gc()
-	return store
+	return store, nil
 }
 
 type managerStore struct {
 	ticker    *time.Ticker
+	wg        sync.WaitGroup
 	db        *gorm.DB
 	tableName string
 	stdout    io.Writer
@@ -79,6 +125,9 @@ func (s *managerStore) gc() {
 }
 
 func (s *managerStore) clean() {
+	s.wg.Add(1)
+	defer s.wg.Done()
+
 	db := s.db.Where("expired_at<=?", time.Now())
 
 	var count int
@@ -205,6 +254,8 @@ func (s *managerStore) Refresh(ctx context.Context, oldsid, sid string, expired 
 
 func (s *managerStore) Close() error {
 	s.ticker.Stop()
+	s.wg.Wait()
+	s.db.Close()
 	return nil
 }
 

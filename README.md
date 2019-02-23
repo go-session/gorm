@@ -22,20 +22,16 @@ import (
 
 	gormstore "github.com/go-session/gorm"
 	"github.com/go-session/session"
-	"github.com/jinzhu/gorm"
 
 	_ "github.com/jinzhu/gorm/dialects/sqlite"
 )
 
 func main() {
-	db, err := gorm.Open("sqlite3", "session.db")
-	if err != nil {
-		panic(err)
-	}
-	defer db.Close()
+	store := gormstore.MustStore(gormstore.Config{}, "sqlite3", "session.db")
+	defer store.Close()
 
 	session.InitManager(
-		session.SetStore(gormstore.NewDefaultStore(db)),
+		session.SetStore(store),
 	)
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -72,6 +68,7 @@ func main() {
 
 	http.ListenAndServe(":8080", nil)
 }
+
 ```
 
 ### Build and run
